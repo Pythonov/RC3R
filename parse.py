@@ -8,13 +8,13 @@ HEADERS = {
 }
 
 
-def get_html(url, params=None):
+async def get_html(url, params=None):
     r = requests.get(url, headers=HEADERS, params=params)
     return r
 
 
-def parse_page(url):
-    html = get_html(url)
+async def parse_page(url):
+    html = await get_html(url)
     if html.status_code == 200:
         text = html.text
         return text

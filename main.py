@@ -4,9 +4,8 @@ from fastapi import FastAPI
 import uvicorn
 import re
 from parse import parse_page
-from tortoise import Tortoise
+from bs4 import BeautifulSoup
 from fastapi import Body
-from tortoise.contrib.fastapi import register_tortoise
 from pydantic import BaseModel
 
 # Initial config
@@ -27,36 +26,80 @@ class Item(BaseModel):
 
 
 @app.post("/look_for", name="Поиск")
-async def look_for(num_of_items=5, item: Item = Body(...)):
-
+async def look_for(num_of_items: int = 3, item: Item = Body(...)):
+    ROSATOM_DOMAIN = "http://zakupki.rosatom.ru/"
     data = item.data
     status = "Ok"
-    guid_list = rss_parser(data)
+    request = f"http://zakupki.rosatom.ru/Web.aspx?node=archiveorders&ot={data}&tso=1&tsl=0&sbflag=0&pricemon=0&ostate=F&pform=a&nocontract=0&orderresult=1"
+    print("INFO: connecting to zakupki.rosatom.ru...")
+    html_base = await parse_page(request)
+    print("INFO: connected successfully")
+    soup = BeautifulSoup(html_base, 'html.parser')
+    table = soup.find('div', {'id': 'table-lots-list'})
+    table = table.find_all('tr')
+    valid_trs = []
+    guid_list = []
+    # Первый элемент почему-то приходит None, поэтому по нему не итерируемся
+    for tr in table[1:]:
+        if "description" not in tr.attrs.get("class"):
+            valid_trs.append(tr)
+
+    for tr in valid_trs:
+        a_tag = tr.find_all("a")[0]
+        if not a_tag.string.startswith("Право заключения"):
+            guid_list.append(ROSATOM_DOMAIN + a_tag.get("href"))
     agents_list = []
     agent_dicts_list = []
     unique_agents_list = []
-    for guid_url in guid_list:
-        guid_html_text = parse_page(guid_url)
-        agents_list.append(parse_guide_page(guid_html_text))
+
+    guid_list = guid_list[0:num_of_items]
+    for i, guid_url in enumerate(guid_list):
+        guid_html_text = await parse_page(guid_url)
+        agent = await parse_guid_page(guid_html_text)
+        if agent:
+            agents_list.append(agent)
+        print(f"INFO: Parsed {i+1} of {len(guid_list)}")
+
     for agent_url in agents_list.copy():
         new_url = agent_url.split("%")
         if new_url[0] in unique_agents_list:
             agents_list.pop(agents_list.index(agent_url))
         else:
             unique_agents_list.append(new_url[0])
+
     for agent_url in agents_list:
-        agent_html_text = parse_page(agent_url)
-        agent_dicts_list.append(parse_agent_page(agent_html_text))
-    return {"status": status, "agent_list": agent_dicts_list}
+        agent_html_text = await parse_page(agent_url)
+        agent_dicts_list.append(await parse_agent_page(agent_html_text))
+
+    final_agent_list = []
+    for i, inn_agent in enumerate(agent_dicts_list):
+        if inn_agent.get("INN"):
+            inn = inn_agent.get("INN")
+            super_info_html = await parse_page(f"https://www.rusprofile.ru/search?query={inn}%27&type=ul")
+            cool_dict = parse_cool_page(super_info_html)
+            final_dict = {**inn_agent, **cool_dict}
+            final_agent_list.append(final_dict)
+
+        else:
+            print("wtf where is your INN mf")
+        print(f"INFO: parsed {i+1} of {len(agent_dicts_list)}")
+
+    return {"status": status, "agent_list": final_agent_list}
 
 
-def parse_guide_page(html):
-    domain = "http://zakupki.rosatom.ru/"
-    reg = r"<td width=\"210\" class=\"ms-formlabel\">Наименование организации</td>[\n\s]*<td class=\"ms-formbody\">[\n\s]*<a href=\"(.*)\">"
-    return domain + re.findall(reg, html)[0]
+async def parse_guid_page(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    domain = "http://zakupki.rosatom.ru"
+    tables = soup.find_all("table")
+    for tab in tables:
+        td_str = tab.tr.td.string
+        if td_str == "Наименование поставщика":
+            url = domain + tab.tr.a.get("href")
+            return url
+    return None
 
 
-def parse_agent_page(html):
+async def parse_agent_page(html):
     # Контактные лица
     fields = {
         "Официальное наименование": "full_name",
@@ -98,6 +141,62 @@ def parse_agent_page(html):
 
     return data
 
+
+def parse_cool_page(html):
+    soup = BeautifulSoup(html, 'html.parser')
+
+    try:
+        reliab_lvl = soup.find("a", {'data-goal': 'reliability_button_ul'}).string
+    except AttributeError:
+        reliab_lvl = ''
+
+    try:
+        status = soup.find("div", {'class': 'company-status'}).string
+    except AttributeError:
+        status = ''
+
+    try:
+        capital = soup.find("dt", {'class': 'company-info__title'},
+                            text=re.compile('Уставный капитал')).parent.dd.span.string
+    except AttributeError:
+        capital = ''
+
+    try:
+        concurents_block = soup.find("a", text=re.compile('Конкуренты')).parent.parent
+        concurents = concurents_block.find_all('a', {'class': 'link-arrow gtm_f_list'})
+        concurents_list = []
+        for concurent in concurents:
+            concurents_list.append(concurent.span.string)
+    except AttributeError:
+        concurents_list = ''
+
+    try:
+        state_oreders_block = soup.find("a", text=re.compile("Госзакупки")).parent.parent.parent
+        state_oreders = state_oreders_block.find_all('div', {'class': 'founder-item'})
+        state_oreders_list = []
+        for state_order in state_oreders:
+            state_oreders_list.append('{0} ({1} {2})'.format(state_order.div.a.span.string, state_order.dl.dt.string,
+                                                             state_order.dl.dd.string))
+    except AttributeError:
+        state_oreders_list = ''
+
+    data = {'reliab_lvl': reliab_lvl,
+            'status': status,
+            'capital': capital,
+            'concurents_list': concurents_list,
+            'state_oreders_list': state_oreders_list
+            }
+
+    return data
+
+
+'''
+reliab_lvl : уровень надёжности
+status : статус (действует, не действует)
+capital : уставной капитал
+concurents_list : список конкурентов
+state_oreders_list : список госзаказов
+'''
 
 if __name__ == "__main__":
     uvicorn.run(app)
