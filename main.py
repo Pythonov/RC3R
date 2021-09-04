@@ -26,7 +26,7 @@ class Item(BaseModel):
 
 
 @app.post("/look_for", name="Поиск")
-async def look_for(num_of_items: int = 3, item: Item = Body(...)):
+async def look_for(num_of_items: int = 6, item: Item = Body(...)):
     ROSATOM_DOMAIN = "http://zakupki.rosatom.ru/"
     data = item.data
     status = "Ok"
@@ -39,7 +39,7 @@ async def look_for(num_of_items: int = 3, item: Item = Body(...)):
     table = table.find_all('tr')
     valid_trs = []
     guid_list = []
-    # Первый элемент почему-то приходит None, поэтому по нему не итерируемся
+
     for tr in table[1:]:
         if "description" not in tr.attrs.get("class"):
             valid_trs.append(tr)
