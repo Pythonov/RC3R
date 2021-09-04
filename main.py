@@ -25,6 +25,19 @@ class Item(BaseModel):
     data: str
 
 
+@app.post("/okpd2_looking", name="Поиск по ОКПД-2")
+async def okpd2_looking(item: Item = Body(...)):
+    OKPD_DOMAIN = "https://www.rusprofile.ru/codes/"
+    data = item.data
+    f = {"0": 3, "1": 1}
+    numbers = str(f["0"]) + str(f["1"])
+    url = OKPD_DOMAIN + numbers
+    if f["0"] < 10:
+        url = url + "0"*(5-len(numbers))
+    else:
+        url = url + "0"*(6-len(numbers))
+
+
 @app.post("/look_for", name="Поиск")
 async def look_for(num_of_items: int = 6, item: Item = Body(...)):
     ROSATOM_DOMAIN = "http://zakupki.rosatom.ru/"
