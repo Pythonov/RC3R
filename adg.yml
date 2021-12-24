@@ -1,0 +1,129 @@
+# Marked as SSO cluster
+---
+all:
+    vars:
+        ansible_user: vagrant
+        ansible_password: vagrant
+        cartridge_app_name: memstorage
+        cartridge_package_path: ../rpm/memstorage-0.3.2-0.rpm
+        cartridge_cluster_cookie: C5yOoacDyA
+        cartridge_failover_params:
+            mode: eventual
+        ansible_ssh_private_key_file: ~/.ssh/id_rsa
+        ansible_ssh_common_args: '-o IdentitiesOnly=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
+        cartridge_defaults:
+            memtx_memory: 67108864
+
+    hosts:
+        storage-1:
+            config:
+                advertise_uri: '192.168.99.9:3301'
+                http_port: 8181
+
+        c-1:
+            config:
+                advertise_uri: '192.168.99.9:3302'
+                http_port: 8182
+
+        ip-1:
+            config:
+                advertise_uri: '192.168.99.9:3303'
+                http_port: 8183
+
+        out-task-1:
+            config:
+                advertise_uri: '192.168.99.9:3304'
+                http_port: 8184
+
+        sch-1:
+            config:
+                advertise_uri: '192.168.99.9:3305'
+                http_port: 8185
+
+        api-1:
+            config:
+                advertise_uri: '192.168.99.9:3306'
+                http_port: 8186
+
+        state-1:
+            config:
+                advertise_uri: '192.168.99.9:3307'
+                http_port: 8187
+
+    children:
+        adg-01:
+            vars:
+                ansible_host: 192.168.99.9
+
+            hosts:
+                storage-1:
+                c-1:
+                ip-1:
+                out-task-1:
+                sch-1:
+                api-1:
+                state-1:
+
+        storage_1_replicaset:
+            vars:
+                replicaset_alias: storage-1
+                weight: 2
+                failover_priority:
+                    - storage-1
+                roles: ['app.roles.adg_storage']
+            hosts:
+                storage-1:
+
+        c_1_replicaset:
+            vars:
+                replicaset_alias: c-1
+                failover_priority:
+                    - c-1
+                roles: ['app.roles.adg_kafka_connector', failover-coordinator]
+            hosts:
+                c-1:
+
+        ip_1_replicaset:
+            vars:
+                replicaset_alias: ip-1
+                failover_priority:
+                    - ip-1
+                roles: ['app.roles.adg_input_processor']
+            hosts:
+                ip-1:
+
+        out_task_1_replicaset:
+            vars:
+                replicaset_alias: out-task-1
+                failover_priority:
+                    - out-task-1
+                roles: ['app.roles.adg_output_processor']
+            hosts:
+                out-task-1:
+
+        sch_1_replicaset:
+            vars:
+                replicaset_alias: sch-1
+                failover_priority:
+                    - sch-1
+                roles: ['app.roles.adg_scheduler']
+            hosts:
+                sch-1:
+
+        api_1_replicaset:
+            vars:
+                replicaset_alias: api-1
+                failover_priority:
+                    - api-1
+                roles: ['app.roles.adg_api']
+            hosts:
+                api-1:
+
+        state_1_replicaset:
+            vars:
+                replicaset_alias: state-1
+                failover_priority:
+                    - state-1
+                roles: ['app.roles.adg_state']
+            hosts:
+                state-1:
