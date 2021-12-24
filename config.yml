@@ -1,0 +1,29 @@
+---
+kafka_produce:
+  custom_properties:
+    log_level: '7'
+  properties:
+kafka:
+  maxNumberOfMessagesPerPartition: 1
+scheduler_tasks: 
+kafka_bootstrap:
+  bootstrap_connection_string: kafka_server_ip:9092
+kafka_topics:
+  EMPLOYEES:
+    error_topic: err
+    schema_key: adb_upload_request
+    target_table: EMPLOYEES
+    schema_data: employees
+    success_topic: succ
+kafka_consume:
+  custom_properties:
+    log_level: '7'
+  topics:
+  - EMPLOYEES
+  properties:
+    enable.auto.offset.store: 'false'
+    auto.offset.reset: earliest
+    enable.auto.commit: 'false'
+    group.id: tarantool-group-csv
+    partition.assignment.strategy: roundrobin
+    enable.partition.eof: 'false'
